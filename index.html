@@ -1,0 +1,298 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Tic‑Tac‑Toe — TV (1080p)</title>
+  <style>
+    /* Container matches 1920x1080 layout but will scale to available screen */
+    :root{
+      --base-w:1920;
+      --base-h:1080;
+      --accent:#1e90ff;
+      --bg:#0b0b0f;
+      --card:#0f1720;
+      --muted:#9aa6b2;
+    }
+    html,body{height:100%;margin:0;background:var(--bg);font-family:system-ui,-apple-system,Segoe UI,Roboto,'Helvetica Neue',Arial}
+    .stage{
+      width:var(--base-w)px;
+      height:var(--base-h)px;
+      margin:auto;
+      position:relative;
+      transform-origin:top left;
+      box-sizing:border-box;
+      padding:80px 120px;
+      display:flex;
+      gap:40px;
+      align-items:center;
+      justify-content:center;
+    }
+    /* scale the stage to fit the screen while preserving 16:9 */
+    .viewport{
+      width:100%;height:100%;display:flex;align-items:center;justify-content:center;overflow:hidden;
+    }
+    /* we calculate scale with JS — CSS fallback: fit horizontally */
+
+    .panel{
+      background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));
+      border-radius:20px;padding:32px;box-shadow:0 10px 30px rgba(0,0,0,0.6);color:#e6eef6;flex:0 0 900px;
+    }
+    h1{margin:0 0 12px;font-size:56px;letter-spacing:-1px}
+    .subtitle{color:var(--muted);margin-bottom:24px;font-size:20px}
+
+    /* Board */
+    .board-wrap{display:grid;grid-template-columns:1fr 1fr;gap:40px;align-items:center}
+    .board{
+      width:640px;height:640px;background:linear-gradient(180deg,#071018,#061016);display:grid;grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(3,1fr);gap:20px;padding:20px;border-radius:24px;box-sizing:border-box;border:4px solid rgba(255,255,255,0.03)
+    }
+    .cell{display:flex;align-items:center;justify-content:center;font-size:120px;font-weight:700;border-radius:12px;background:linear-gradient(180deg, rgba(255,255,255,0.01), rgba(255,255,255,0.00));cursor:pointer;user-select:none}
+    .cell.empty{color:rgba(255,255,255,0.12)}
+    .cell.x{color:#ffd166}
+    .cell.o{color:#8ecae6}
+    .cell.focus{outline:6px solid rgba(30,144,255,0.12);box-shadow:0 0 0 6px rgba(30,144,255,0.06) inset;border-radius:10px}
+    .cell.highlight{animation:pop .25s ease}
+    @keyframes pop{from{transform:scale(.98)}to{transform:scale(1)}}
+
+    .sidebar{width:340px;padding:24px;background:linear-gradient(180deg, rgba(255,255,255,0.01), rgba(255,255,255,0.00));border-radius:16px}
+    .status{font-size:28px;margin-bottom:16px}
+    .controls{display:flex;flex-direction:column;gap:12px}
+    .btn{background:transparent;border:2px solid rgba(255,255,255,0.06);padding:16px;border-radius:12px;font-size:22px;color:var(--muted);cursor:pointer}
+    .btn.primary{background:var(--accent);color:#041526;border-color:transparent}
+    .footer{position:absolute;left:120px;bottom:40px;color:var(--muted);font-size:18px}
+
+    /* Large focus ring for TV remote focusable controls */
+    .btn:focus{outline:6px solid rgba(30,144,255,0.12)}
+
+    /* Responsive: center stage and scale to fit */
+    @media (max-aspect-ratio:16/9){
+      .stage{width:calc(100vh*(16/9));height:100vh}
+    }
+    @media (min-aspect-ratio:16/9){
+      .stage{width:100vw;height:calc(100vw*(9/16))}
+    }
+
+    /* Simple animation when game ends */
+    .win{animation:glow 1s ease-in-out infinite alternate}
+    @keyframes glow{from{box-shadow:0 0 20px rgba(255,255,255,0.02)}to{box-shadow:0 0 40px rgba(255,255,255,0.06)}}
+  </style>
+</head>
+<body>
+  <div class="viewport">
+    <div id="stage" class="stage" role="application" aria-label="Tic Tac Toe TV app">
+      <div class="panel" id="gamePanel">
+        <h1>Tic‑Tac‑Toe</h1>
+        <div class="subtitle">TV mode — 1080p friendly • use your remote (arrows + Enter)</div>
+
+        <div class="board-wrap">
+          <div class="board" id="board" role="grid" aria-label="Game board">
+            <!-- cells inserted by JS -->
+          </div>
+
+          <aside class="sidebar" aria-label="Game info and controls">
+            <div class="status" id="status">Turn: <strong id="turn">X</strong></div>
+            <div class="controls">
+              <button class="btn" id="newBtn">New Game</button>
+              <button class="btn" id="undoBtn">Undo</button>
+              <button class="btn" id="aiBtn">Play vs CPU: <span id="aiMode">Off</span></button>
+              <button class="btn" id="hintBtn">Hint</button>
+            </div>
+            <div style="height:16px"></div>
+            <div style="color:var(--muted);font-size:18px">Use the remote's arrow keys to move selection. Press Enter to place mark. Escape to reset.</div>
+          </aside>
+        </div>
+
+        <div class="footer">Tip: best experienced on 1920×1080 — the layout scales to fit your TV.</div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Simple Tic-Tac-Toe logic with remote-friendly navigation
+    const boardEl = document.getElementById('board');
+    const statusTurn = document.getElementById('turn');
+    const newBtn = document.getElementById('newBtn');
+    const undoBtn = document.getElementById('undoBtn');
+    const aiBtn = document.getElementById('aiBtn');
+    const aiModeLabel = document.getElementById('aiMode');
+
+    let board = Array(9).fill(null);
+    let current = 'X';
+    let focused = 4; // start center
+    let history = [];
+    let aiOn = false;
+
+    // Build cells
+    function renderBoard(){
+      boardEl.innerHTML = '';
+      for(let i=0;i<9;i++){
+        const c = document.createElement('div');
+        c.className = 'cell ' + (board[i] ? board[i].toLowerCase() : 'empty');
+        c.setAttribute('role','gridcell');
+        c.setAttribute('data-index',i);
+        c.tabIndex = -1;
+        c.innerText = board[i] || '';
+        if(i===focused) c.classList.add('focus');
+        c.addEventListener('click', ()=>{ select(i); place(); });
+        boardEl.appendChild(c);
+      }
+      statusTurn.innerText = current;
+    }
+
+    function select(i){
+      focused = i;
+      updateFocus();
+    }
+    function updateFocus(){
+      boardEl.querySelectorAll('.cell').forEach(el=>{
+        el.classList.toggle('focus', Number(el.dataset.index)===focused);
+      });
+    }
+
+    function place(){
+      if(board[focused] || checkWinner(board)) return;
+      history.push(board.slice());
+      board[focused] = current;
+      const winner = checkWinner(board);
+      if(winner){
+        renderBoard();
+        announceWin(winner);
+        return;
+      }
+      current = current === 'X' ? 'O' : 'X';
+      renderBoard();
+      if(aiOn && current==='O') setTimeout(aiMove,300);
+    }
+
+    function aiMove(){
+      // very simple AI: pick first available or winning move
+      const idx = findBestMove(board,'O') ?? board.findIndex(v=>v===null);
+      if(idx>=0) { select(idx); place(); }
+    }
+
+    function findBestMove(b,player){
+      // try to win or block
+      for(let i=0;i<9;i++){
+        if(b[i]===null){
+          const copy=b.slice();copy[i]=player;
+          if(checkWinner(copy)===player) return i;
+        }
+      }
+      const opponent = player==='O'?'X':'O';
+      for(let i=0;i<9;i++){
+        if(b[i]===null){
+          const copy=b.slice();copy[i]=opponent;
+          if(checkWinner(copy)===opponent) return i;
+        }
+      }
+      return null;
+    }
+
+    function undo(){
+      if(history.length){
+        board = history.pop();
+        current = current==='X'?'O':'X';
+        renderBoard();
+      }
+    }
+
+    function reset(){
+      board = Array(9).fill(null);
+      current = 'X';
+      focused = 4;
+      history = [];
+      renderBoard();
+      document.getElementById('board').classList.remove('win');
+    }
+
+    function announceWin(winner){
+      const s = document.getElementById('status');
+      s.innerHTML = 'Winner: <strong>' + winner + '</strong>';
+      boardEl.classList.add('win');
+    }
+
+    function checkWinner(b){
+      const lines = [
+        [0,1,2],[3,4,5],[6,7,8],
+        [0,3,6],[1,4,7],[2,5,8],
+        [0,4,8],[2,4,6]
+      ];
+      for(const [a,b1,c] of lines){
+        if(b[a] && b[a]===b[b1] && b[a]===b[c]) return b[a];
+      }
+      if(b.every(Boolean)) return 'Draw';
+      return null;
+    }
+
+    // Movement helpers for remote
+    function up(){
+      const map = {0:6,1:7,2:8,3:0,4:1,5:2,6:3,7:4,8:5};
+      focused = map[focused]; updateFocus();
+    }
+    function down(){
+      const map = {0:3,1:4,2:5,3:6,4:7,5:8,6:0,7:1,8:2};
+      focused = map[focused]; updateFocus();
+    }
+    function left(){
+      const map = {0:2,1:0,2:1,3:5,4:3,5:4,6:8,7:6,8:7};
+      focused = map[focused]; updateFocus();
+    }
+    function right(){
+      const map = {0:1,1:2,2:0,3:4,4:5,5:3,6:7,7:8,8:6};
+      focused = map[focused]; updateFocus();
+    }
+
+    function enter(){ place(); }
+    function escape(){ reset(); }
+
+    // wire up buttons
+    newBtn.addEventListener('click', reset);
+    undoBtn.addEventListener('click', undo);
+    aiBtn.addEventListener('click', ()=>{ aiOn = !aiOn; aiModeLabel.innerText = aiOn? 'On':'Off'; if(aiOn && current==='O') aiMove(); });
+    document.getElementById('hintBtn').addEventListener('click', ()=>{ const idx = findBestMove(board,current) ?? -1; if(idx>=0){ select(idx); const el = boardEl.querySelector('[data-index="'+idx+'"]'); el.classList.add('highlight'); setTimeout(()=>el.classList.remove('highlight'),500);} });
+
+    // focus ring keyboard support
+    window.addEventListener('keydown',(ev)=>{
+      // allow arrows to change selection too so remote + keyboard both work
+      switch(ev.key){
+        case 'ArrowUp': up(); ev.preventDefault(); break;
+        case 'ArrowDown': down(); ev.preventDefault(); break;
+        case 'ArrowLeft': left(); ev.preventDefault(); break;
+        case 'ArrowRight': right(); ev.preventDefault(); break;
+        case 'Enter': enter(); ev.preventDefault(); break;
+        case 'Escape': escape(); ev.preventDefault(); break;
+      }
+    });
+
+    // initial render and scale stage to fit viewport while keeping 16:9 and crisp sizing
+    function fitStage(){
+      const stage = document.getElementById('stage');
+      const vw = window.innerWidth;
+      const vh = window.innerHeight;
+      const scale = Math.min(vw/1920, vh/1080);
+      stage.style.transform = `scale(${scale})`;
+    }
+    window.addEventListener('resize', fitStage);
+
+    renderBoard();
+    fitStage();
+
+    // --- User-provided remote control snippet integrated below ---
+    document.addEventListener("keydown", async function(event) {
+    	switch (event.key) {
+        case "Enter": enter(); break;
+        case "Escape": escape(); break;
+        case "ArrowUp": up(); break;
+        case "ArrowDown": down(); break;    
+        case "ArrowLeft": left(); break;
+        case "ArrowRight": right(); break;
+			default: return;
+		}
+		event.preventDefault();
+    });
+
+    // expose functions to console (handy for TV remote debugging)
+    window.enter = enter; window.escape = escape; window.up = up; window.down = down; window.left = left; window.right = right;
+  </script>
+</body>
+</html>
